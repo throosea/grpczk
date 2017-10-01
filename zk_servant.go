@@ -21,7 +21,7 @@
 // @date 2017. 10. 1. PM 7:42
 //
 
-package support
+package grpczk
 
 import (
 	"github.com/samuel/go-zookeeper/zk"

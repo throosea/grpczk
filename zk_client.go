@@ -227,10 +227,6 @@ func (w *serverListWatcher) Close() {
 
 
 func (w *serverListWatcher) inject(updates []*naming.Update) {
-	zk.DefaultLogger.Printf("inject : %v", updates)
-	defer func() {
-		zk.DefaultLogger.Printf("finish inject")
-	} ()
 	w.side <- len(updates)
 	for _, u := range updates {
 		zk.DefaultLogger.Printf("service node updating %v : %v", geUpdateOperationName(u.Op), u.Addr)

@@ -136,6 +136,7 @@ func (z *ZkClientServant) watchNode(znodePath string, children []string, ch <-ch
 			continue
 		}
 
+		zk.DefaultLogger.Printf("updating server list : %v", children)
 		z.updateServerList(children)
 	}
 }

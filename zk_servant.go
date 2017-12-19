@@ -201,6 +201,10 @@ func (z *ZkServant) SetData(path string, data []byte) error {
 }
 
 
+const (
+	FlagPersistent = 0
+)
+
 func (z *ZkServant) ensurePath(path string) error {
 	zk.DefaultLogger.Printf("zk ensurePath [%s]", path)
 
@@ -212,7 +216,7 @@ func (z *ZkServant) ensurePath(path string) error {
 		}
 		dir += "/" + p
 
-		_, err := z.zkConn.Create(dir, nil, 0, acl)
+		_, err := z.zkConn.Create(dir, nil, FlagPersistent, acl)
 		if err != nil && err != zk.ErrNodeExists {
 			return err
 		}

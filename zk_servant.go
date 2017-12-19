@@ -190,8 +190,36 @@ func (z *ZkServant) SetData(path string, data []byte) error {
 	_, err := z.zkConn.Set(path, data, zkVersionAll)
 	if err == zk.ErrNoNode {
 		zk.DefaultLogger.Printf("[%s] node does not exist", path)
+		err = z.ensurePath(path)
+		if err != nil {
+			return err
+		}
+		// set again
+		_, err = z.zkConn.Set(path, data, zkVersionAll)
 	}
 	return err
+}
+
+
+func (z *ZkServant) ensurePath(path string) error {
+	zk.DefaultLogger.Printf("zk ensurePath [%s]", path)
+
+	acl := zk.WorldACL(zk.PermAll)
+	dir := ""
+	for _, p := range strings.Split(path, "/")	{
+		if len(p) == 0 {
+			continue
+		}
+		dir += "/" + p
+
+		_, err := z.zkConn.Create(dir, nil, 0, acl)
+		if err != nil && err != zk.ErrNodeExists {
+			return err
+		}
+		zk.DefaultLogger.Printf("[%s] created", dir)
+	}
+
+	return nil
 }
 
 func (z *ZkServant) GetTransportMode(path string) (TransportMode, error) {

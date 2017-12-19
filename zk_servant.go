@@ -188,6 +188,9 @@ func (z *ZkServant) SetData(path string, data []byte) error {
 	zk.DefaultLogger.Printf("zk setData [%s] : %d bytes", path, len(data))
 	z.ensureZkEnabled()
 	_, err := z.zkConn.Set(path, data, zkVersionAll)
+	if err == zk.ErrNoNode {
+		zk.DefaultLogger.Printf("[%s] node does not exist", path)
+	}
 	return err
 }
 

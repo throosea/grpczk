@@ -15,7 +15,24 @@
 
 package grpczk
 
+import (
+	"context"
+	"google.golang.org/grpc/metadata"
+)
 
 const(
 	GrpcTransactionId		= "grpczk-transaction-id"
 )
+
+
+func GetGrpcTransactionId(ctx context.Context) string 	{
+	headers, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		transactionId, ok := headers[GrpcTransactionId]
+		if ok && len(transactionId) > 0 {
+			return transactionId[0]
+		}
+	}
+
+	return ""
+}

@@ -54,6 +54,7 @@ type ZkServant struct {
 	cond		*sync.Cond
 	state		zk.State
 	pathSet		map[string]struct{}
+	sessionAvailable	bool
 }
 
 func NewZkServant(zkIpList string) *ZkServant {
@@ -63,6 +64,7 @@ func NewZkServant(zkIpList string) *ZkServant {
 	servant.cond = sync.NewCond(&servant.mutex)
 	servant.state = zk.StateDisconnected
 	servant.pathSet = map[string]struct{}{}
+	servant.sessionAvailable = true
 	return &servant
 }
 
@@ -101,7 +103,6 @@ func (z *ZkServant) processZkEvent(event zk.Event) bool	{
 		return true
 	}
 
-	lastState := z.state
 	z.state = event.State
 
 	z.cond.Broadcast()
@@ -109,8 +110,9 @@ func (z *ZkServant) processZkEvent(event zk.Event) bool	{
 	switch event.State {
 	case zk.StateHasSession :
 		zk.DefaultLogger.Printf("zk has session")
-		if lastState == zk.StateDisconnected {
+		if !z.sessionAvailable {
 			z.reCreateAllEphemerals()
+			z.sessionAvailable = true
 		}
 	case zk.StateConnected :
 		zk.DefaultLogger.Printf("zk connected")
@@ -120,6 +122,7 @@ func (z *ZkServant) processZkEvent(event zk.Event) bool	{
 		zk.DefaultLogger.Printf("zk expired")
 		z.zkConn.Close()
 		z.zkConn = nil
+		z.sessionAvailable = false
 		z.Connect()
 		return false
 	}

@@ -116,6 +116,18 @@ func (z *ZkClientServant) Connect(znodePath string) (*grpc.ClientConn, error) {
 	return gConn, err
 }
 
+func (z *ZkClientServant) GetData(znodePath string) ([]byte, error) {
+	return z.zkServant.GetData(znodePath)
+}
+
+func (z *ZkClientServant) SetData(znodePath string, data []byte) error {
+	if data == nil {
+		return nil
+	}
+
+	return z.zkServant.SetData(znodePath, data)
+}
+
 func (z *ZkClientServant) watchNode(znodePath string, children []string, ch <-chan zk.Event) {
 	var err error
 

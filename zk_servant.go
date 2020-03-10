@@ -97,11 +97,11 @@ func (z *ZkServant) Connect() error {
 
 
 func (z *ZkServant) processZkEvent(event zk.Event) bool	{
-	zk.DefaultLogger.Printf("zk event : %v", event)
-
 	if event.Type != zk.EventSession {
 		return true
 	}
+
+	zk.DefaultLogger.Printf("zk event : %v", event)
 
 	z.state = event.State
 
@@ -265,7 +265,6 @@ func (z *ZkServant) GetData(path string) ([]byte, error) {
 }
 
 func (z *ZkServant) ChildrenW(path string) ([]string, <-chan zk.Event, error) {
-	zk.DefaultLogger.Printf("zk ChildrenW : %s", path)
 	z.ensureZkEnabled()
 	data, _, ch, err := z.zkConn.ChildrenW(path)
 	return data, ch, err
@@ -276,6 +275,24 @@ func (z *ZkServant) Delete(path string) error {
 	return z.zkConn.Delete(path, zkVersionAll)
 }
 
+
+func (z *ZkServant) createLockPath(path string) error {
+	acl := zk.WorldACL(zk.PermAll)
+	_, err := z.zkConn.Create(path, nil, zk.FlagEphemeral, acl)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (z *ZkServant) deleteLockPath(path string)  {
+	err := z.zkConn.Delete(path, 0)
+	if err != nil {
+		zk.DefaultLogger.Printf("Delete error : %s, %s", path, err.Error())
+		return
+	}
+}
 
 func parseIpList(config string) []string {
 	items := strings.Split(config, ",")

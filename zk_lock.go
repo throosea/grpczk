@@ -45,18 +45,20 @@ func (z *ZkLock) Close()	{
 	}
 }
 
-func (z *ZkServant) AcquireLock(znodeLock, key string)	ZkLock	{
-	lockPath := filepath.Join(znodeLock, key)
-
-	zk.DefaultLogger.Printf("AcquireLock : %s", lockPath)
+func (z *ZkServant) AcquireLock(znodeBaseDir, key string)	ZkLock	{
+	znodePath := filepath.Join(znodeBaseDir, key)
 
 	zkLock := ZkLock{}
-	zkLock.lockPath = lockPath
+	zkLock.lockPath = znodePath
 	zkLock.zkServant = z
+	first := true
 
 	for {
-		err := z.createLockPath(lockPath)
+		err := z.createLockPath(znodePath)
 		if err == nil {
+			if !first {
+				zk.DefaultLogger.Printf("acquire lock for key [%s]", key)
+			}
 			return zkLock
 		}
 
@@ -65,7 +67,11 @@ func (z *ZkServant) AcquireLock(znodeLock, key string)	ZkLock	{
 			return zkLock
 		}
 
-		children, eventCh, err := z.ChildrenW(znodeLock)
+		if first {
+			first = false
+		}
+
+		children, eventCh, err := z.ChildrenW(znodeBaseDir)
 		if err != nil {
 			zkLock.err = err
 			return zkLock
@@ -77,9 +83,11 @@ func (z *ZkServant) AcquireLock(znodeLock, key string)	ZkLock	{
 			continue
 		}
 
+		zk.DefaultLogger.Printf("waiting key [%s] release....", key)
+
 		for {
 			e := <-eventCh
-			children, eventCh, err = z.ChildrenW(znodeLock)
+			children, eventCh, err = z.ChildrenW(znodeBaseDir)
 			if err != nil {
 				zkLock.err = err
 				return zkLock
@@ -99,6 +107,10 @@ func (z *ZkServant) AcquireLock(znodeLock, key string)	ZkLock	{
 }
 
 func hasKeyInList(list []string, key string)	bool 	{
+	if len(list) == 0 {
+		return false
+	}
+
 	for _, v := range list {
 		if v == key {
 			return true

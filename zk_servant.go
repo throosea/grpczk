@@ -24,12 +24,12 @@
 package grpczk
 
 import (
-	"github.com/samuel/go-zookeeper/zk"
-	"time"
-	"sync"
-	"strings"
 	"encoding/json"
 	"fmt"
+	"github.com/samuel/go-zookeeper/zk"
+	"strings"
+	"sync"
+	"time"
 )
 
 

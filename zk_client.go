@@ -24,12 +24,14 @@
 package grpczk
 
 import (
+	"context"
 	"google.golang.org/grpc/naming"
 	"fmt"
 	"github.com/samuel/go-zookeeper/zk"
 	"google.golang.org/grpc"
 	"crypto/tls"
 	"google.golang.org/grpc/credentials"
+	"time"
 )
 
 func NewZkClientServant(zkIpList string) *ZkClientServant {
@@ -81,17 +83,17 @@ func (z *ZkClientServant) Connect(znodePath string) (*grpc.ClientConn, error) {
 	zk.DefaultLogger.Printf("initial server list : %v", children)
 	z.addr = children[0]
 
-	go func() {
-		z.watchNode(znodePath, children, ch)
-	} ()
-
 	grpc.EnableTracing = false
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1)
+	defer cancel()
 
 	var gConn *grpc.ClientConn
 	switch mode {
 	case TransportModePlain :
-		gConn, err = grpc.Dial(
+		gConn, err = grpc.DialContext(
+			ctx,
 			z.addr,
+			//grpc.WithTimeout()
 			grpc.WithBlock(),
 			grpc.WithBalancer(grpc.RoundRobin(z)),
 			grpc.WithInsecure())
@@ -100,7 +102,8 @@ func (z *ZkClientServant) Connect(znodePath string) (*grpc.ClientConn, error) {
 			InsecureSkipVerify: true,
 		}
 		creds := credentials.NewTLS(conf)
-		gConn, err = grpc.Dial(
+		gConn, err = grpc.DialContext(
+			ctx,
 			z.addr,
 			grpc.WithBlock(),
 			grpc.WithBalancer(grpc.RoundRobin(z)),
@@ -109,8 +112,14 @@ func (z *ZkClientServant) Connect(znodePath string) (*grpc.ClientConn, error) {
 		return nil, fmt.Errorf("invalid transport mode : %v", mode)
 	}
 
-	if len(children) > 1 {
-		z.updateServerList(children)
+	if err != nil {
+		go func() {
+			z.watchNode(znodePath, children, ch)
+		} ()
+
+		if len(children) > 1 {
+			z.updateServerList(children)
+		}
 	}
 
 	return gConn, err

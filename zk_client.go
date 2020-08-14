@@ -31,7 +31,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/naming"
-	"runtime/debug"
 	"time"
 )
 
@@ -202,7 +201,6 @@ type serverListWatcher struct {
 }
 
 func (w *serverListWatcher) Next() (updates []*naming.Update, err error) {
-	debug.PrintStack()
 	n := <-w.side
 	if n == 0 {
 		return nil, fmt.Errorf("w.side is closed")
@@ -218,7 +216,6 @@ func (w *serverListWatcher) Next() (updates []*naming.Update, err error) {
 }
 
 func (w *serverListWatcher) Resolve(target string) (naming.Watcher, error) {
-	debug.PrintStack()
 	w.side <- 1
 	w.update <- &naming.Update{
 		Op:   naming.Add,

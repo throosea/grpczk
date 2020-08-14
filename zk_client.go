@@ -25,32 +25,26 @@ package grpczk
 
 import (
 	"context"
-	"google.golang.org/grpc/naming"
+	"crypto/tls"
 	"fmt"
 	"github.com/samuel/go-zookeeper/zk"
 	"google.golang.org/grpc"
-	"crypto/tls"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/naming"
+	"runtime/debug"
 	"time"
 )
 
 func NewZkClientServant(zkIpList string) *ZkClientServant {
 	clientServant := &ZkClientServant{}
-	clientServant.addressSet = map[string]struct{}{}
 	clientServant.zkServant = NewZkServant(zkIpList)
-	clientServant.w = &serverListWatcher{
-		update:   make(chan *naming.Update, 1),
-		side:     make(chan int, 1),
-		readDone: make(chan int),
-	}
+	clientServant.serverList = make(map[string]*serverListWatcher)
 	return clientServant
 }
 
 type ZkClientServant struct {
 	zkServant    *ZkServant
-	w    		*serverListWatcher
-	addressSet	map[string]struct{}
-	addr 		string
+	serverList 	map[string]*serverListWatcher	// key는 znodepath
 }
 
 func (z *ZkClientServant) SetLogger(logger zk.Logger) *ZkClientServant {
@@ -80,22 +74,36 @@ func (z *ZkClientServant) Connect(znodePath string) (*grpc.ClientConn, error) {
 	if len(children) == 0 {
 		return nil, fmt.Errorf("there is no server")
 	}
-	zk.DefaultLogger.Printf("initial server list : %v", children)
-	z.addr = children[0]
+	zk.DefaultLogger.Printf("[%s] initial server list : %v", znodePath, children)
+	defaultRouteAddr := children[0]
 
 	grpc.EnableTracing = false
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1)
 	defer cancel()
+
+	// znode service path 에 따른 serverListWatcher 생성
+	w := &serverListWatcher{
+		defaultRouteAddr: defaultRouteAddr,
+		serviceName: znodePath,
+		addressSet: make(map[string]struct{}),
+		update:   make(chan *naming.Update, 1),
+		side:     make(chan int, 1),
+		readDone: make(chan int),
+	}
 
 	var gConn *grpc.ClientConn
 	switch mode {
 	case TransportModePlain :
 		gConn, err = grpc.DialContext(
 			ctx,
-			z.addr,
-			//grpc.WithTimeout()
+			defaultRouteAddr,
 			grpc.WithBlock(),
-			grpc.WithBalancer(grpc.RoundRobin(z)),
+			// Deprecated: use WithDefaultServiceConfig and WithDisableServiceConfig
+			//grpc.WithDefaultServiceConfig("aaa"),
+			//grpc.WithDisableServiceConfig(),
+			//grpc.WithBalancerName(roundrobin.Name),
+			//grpc.WithBalancerName("aaa"),
+			grpc.WithBalancer(grpc.RoundRobin(w)),
 			grpc.WithInsecure())
 	case TransportModeSsl :
 		conf := &tls.Config{
@@ -104,21 +112,23 @@ func (z *ZkClientServant) Connect(znodePath string) (*grpc.ClientConn, error) {
 		creds := credentials.NewTLS(conf)
 		gConn, err = grpc.DialContext(
 			ctx,
-			z.addr,
+			defaultRouteAddr,
 			grpc.WithBlock(),
-			grpc.WithBalancer(grpc.RoundRobin(z)),
+			grpc.WithBalancer(grpc.RoundRobin(w)),
 			grpc.WithTransportCredentials(creds))
 	default:
 		return nil, fmt.Errorf("invalid transport mode : %v", mode)
 	}
 
-	if err != nil {
+	if err == nil {
+		z.serverList[znodePath] = w
+
 		go func() {
 			z.watchNode(znodePath, children, ch)
 		} ()
 
 		if len(children) > 1 {
-			z.updateServerList(children)
+			z.updateServerList(znodePath, children)
 		}
 	}
 
@@ -141,14 +151,14 @@ func (z *ZkClientServant) watchNode(znodePath string, children []string, ch <-ch
 	var err error
 
 	defer func() {
-		zk.DefaultLogger.Printf("stop watching node")
+		zk.DefaultLogger.Printf("[%s] stop watching node", znodePath)
 	}()
 
 	for {
 		e := <-ch
 		children, ch, err = z.zkServant.ChildrenW(znodePath)
 		if err != nil {
-			zk.DefaultLogger.Printf("zk error : %s", err.Error())
+			zk.DefaultLogger.Printf("[%s] zk error : %s", znodePath, err.Error())
 			z.Connect(znodePath)
 			return
 		}
@@ -157,69 +167,32 @@ func (z *ZkClientServant) watchNode(znodePath string, children []string, ch <-ch
 			continue
 		}
 
-		zk.DefaultLogger.Printf("updating server list : %v", children)
-		z.updateServerList(children)
+		zk.DefaultLogger.Printf("[%s] updating server list : %v", znodePath, children)
+		z.updateServerList(znodePath, children)
 	}
 }
 
-func (z *ZkClientServant) updateServerList(children []string)	{
+func (z *ZkClientServant) updateServerList(znodePath string, children []string)	{
 	var updates []*naming.Update
-	updates = z.buildCreatedList(children, updates)
-	updates = z.buildRemovedList(children, updates)
-	z.w.inject(updates)
-}
 
-func (z *ZkClientServant) buildRemovedList(children []string, updates []*naming.Update) []*naming.Update {
-	copiedSet := map[string]struct{}{}
-	for key, _ := range z.addressSet {
-		copiedSet[key] = struct{}{}
+	w, ok := z.serverList[znodePath]
+	if !ok {
+		zk.DefaultLogger.Printf("[%s] not found server list", znodePath)
+		return
 	}
 
-	for _, server := range children {
-		delete(copiedSet, server)
-	}
-
-	for server := range copiedSet {
-		updates = append(updates, &naming.Update{
-			Op:   naming.Delete,
-			Addr: server,
-		})
-		delete(z.addressSet, server)
-	}
-
-	return updates
-}
-
-
-func (z *ZkClientServant) buildCreatedList(children []string, updates []*naming.Update) []*naming.Update {
-	for _, server := range children {
-		_, ok := z.addressSet[server]
-		if !ok {
-			updates = append(updates, &naming.Update{
-				Op:   naming.Add,
-				Addr: server,
-			})
-			z.addressSet[server] = struct{}{}
-		}
-	}
-
-	return updates
-}
-
-func (z *ZkClientServant) Resolve(target string) (naming.Watcher, error) {
-	z.w.side <- 1
-	z.w.update <- &naming.Update{
-		Op:   naming.Add,
-		Addr: z.addr,
-	}
-	z.addressSet[z.addr] = struct{}{}
-	go func() {
-		<-z.w.readDone
-	}()
-	return z.w, nil
+	updates = w.buildCreatedList(children, updates)
+	updates = w.buildRemovedList(children, updates)
+	w.inject(updates)
 }
 
 type serverListWatcher struct {
+	// service name
+	serviceName 	string
+	// default routing (server) address
+	defaultRouteAddr 	string
+	// server address ip set
+	addressSet	map[string]struct{}
 	// the channel to receives name resolution updates
 	update chan *naming.Update
 	// the side channel to get to know how many updates in a batch
@@ -229,6 +202,7 @@ type serverListWatcher struct {
 }
 
 func (w *serverListWatcher) Next() (updates []*naming.Update, err error) {
+	debug.PrintStack()
 	n := <-w.side
 	if n == 0 {
 		return nil, fmt.Errorf("w.side is closed")
@@ -243,6 +217,20 @@ func (w *serverListWatcher) Next() (updates []*naming.Update, err error) {
 	return
 }
 
+func (w *serverListWatcher) Resolve(target string) (naming.Watcher, error) {
+	debug.PrintStack()
+	w.side <- 1
+	w.update <- &naming.Update{
+		Op:   naming.Add,
+		Addr: w.defaultRouteAddr,
+	}
+	w.addressSet[w.defaultRouteAddr] = struct{}{}
+	go func() {
+		<-w.readDone
+	}()
+	return w, nil
+}
+
 func (w *serverListWatcher) Close() {
 }
 
@@ -250,11 +238,48 @@ func (w *serverListWatcher) Close() {
 func (w *serverListWatcher) inject(updates []*naming.Update) {
 	w.side <- len(updates)
 	for _, u := range updates {
-		zk.DefaultLogger.Printf("service node updating %v : %v", geUpdateOperationName(u.Op), u.Addr)
+		zk.DefaultLogger.Printf("[%s] service node updating %v : %v", w.serviceName, geUpdateOperationName(u.Op), u.Addr)
 		w.update <- u
 	}
 	<-w.readDone
 }
+
+func (w *serverListWatcher) buildCreatedList(children []string, updates []*naming.Update) []*naming.Update {
+	for _, server := range children {
+		_, ok := w.addressSet[server]
+		if !ok {
+			updates = append(updates, &naming.Update{
+				Op:   naming.Add,
+				Addr: server,
+			})
+			w.addressSet[server] = struct{}{}
+		}
+	}
+
+	return updates
+}
+
+func (w *serverListWatcher) buildRemovedList(children []string, updates []*naming.Update) []*naming.Update {
+	copiedSet := map[string]struct{}{}
+	for key, _ := range w.addressSet {
+		copiedSet[key] = struct{}{}
+	}
+
+	for _, server := range children {
+		delete(copiedSet, server)
+	}
+
+	for server := range copiedSet {
+		updates = append(updates, &naming.Update{
+			Op:   naming.Delete,
+			Addr: server,
+		})
+		delete(w.addressSet, server)
+	}
+
+	return updates
+}
+
 
 func geUpdateOperationName(op naming.Operation) string {
 	if op == naming.Add {

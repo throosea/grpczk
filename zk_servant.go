@@ -95,6 +95,13 @@ func (z *ZkServant) Connect() error {
 	return nil
 }
 
+func (z *ZkServant) Close()  {
+	z.zkConn.Close()
+	z.zkConn = nil
+	z.sessionAvailable = false
+	z.state = zk.StateDisconnected
+	z.pathSet = nil
+}
 
 func (z *ZkServant) processZkEvent(event zk.Event) bool	{
 	if event.Type != zk.EventSession {

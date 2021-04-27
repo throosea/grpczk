@@ -26,26 +26,26 @@ package grpczk
 import (
 	"github.com/samuel/go-zookeeper/zk"
 	"path/filepath"
+	"time"
 )
 
 type ZkLock struct {
-	err			error
-	zkServant    *ZkServant
-	lockPath 	string
+	err       error
+	zkServant *ZkServant
+	lockPath  string
 }
 
-func (z ZkLock) Error()	error 	{
+func (z ZkLock) Error() error {
 	return z.err
 }
 
-
-func (z *ZkLock) Close()	{
+func (z *ZkLock) Close() {
 	if z.zkServant != nil && len(z.lockPath) > 0 {
 		z.zkServant.deleteLockPath(z.lockPath)
 	}
 }
 
-func (z *ZkServant) AcquireLock(znodeBaseDir, key string)	ZkLock	{
+func (z *ZkServant) AcquireLock(znodeBaseDir, key string) ZkLock {
 	znodePath := filepath.Join(znodeBaseDir, key)
 
 	zkLock := ZkLock{}
@@ -62,7 +62,7 @@ func (z *ZkServant) AcquireLock(znodeBaseDir, key string)	ZkLock	{
 			return zkLock
 		}
 
-		if err != zk.ErrNodeExists	{
+		if err != zk.ErrNodeExists {
 			zkLock.err = err
 			return zkLock
 		}
@@ -78,7 +78,7 @@ func (z *ZkServant) AcquireLock(znodeBaseDir, key string)	ZkLock	{
 		}
 
 		// check list has a key
-		if !hasKeyInList(children, key)	{
+		if !hasKeyInList(children, key) {
 			// 발견되지 않았다면 다시 생성을 시도한다
 			continue
 		}
@@ -86,27 +86,37 @@ func (z *ZkServant) AcquireLock(znodeBaseDir, key string)	ZkLock	{
 		zk.DefaultLogger.Printf("waiting key [%s] release....", key)
 
 		for {
-			e := <-eventCh
-			children, eventCh, err = z.ChildrenW(znodeBaseDir)
-			if err != nil {
-				zkLock.err = err
-				return zkLock
+			exit := false
+			select {
+			case e := <-eventCh:
+				children, eventCh, err = z.ChildrenW(znodeBaseDir)
+				if err != nil {
+					zkLock.err = err
+					return zkLock
+				}
+
+				if e.Type&zk.EventNodeChildrenChanged != zk.EventNodeChildrenChanged {
+					break
+				}
+
+				// check list has a key
+				if !hasKeyInList(children, key) {
+					// 발견되지 않았다면 다시 생성을 시도한다
+					exit = true
+				}
+			case <-time.After(time.Second * 5):
+				exit = true
+				zk.DefaultLogger.Printf("[%s] timeout...", key)
 			}
 
-			if e.Type & zk.EventNodeChildrenChanged != zk.EventNodeChildrenChanged {
-				continue
-			}
-
-			// check list has a key
-			if !hasKeyInList(children, key)	{
-				// 발견되지 않았다면 다시 생성을 시도한다
+			if exit {
 				break
 			}
 		}
 	}
 }
 
-func hasKeyInList(list []string, key string)	bool 	{
+func hasKeyInList(list []string, key string) bool {
 	if len(list) == 0 {
 		return false
 	}
@@ -118,4 +128,3 @@ func hasKeyInList(list []string, key string)	bool 	{
 	}
 	return false
 }
-

@@ -37,10 +37,10 @@ import (
 )
 
 const (
-	zkIpList = "172.21.106.191"
-	countFile = "/tmp/golang_lock_count"
+	zkIpList     = "172.21.106.191"
+	countFile    = "/tmp/golang_lock_count"
 	znodeBaseDir = "/godmusic/lock/artist_like"
-	znodeKey = "30006413"
+	znodeKey     = "30006413"
 )
 
 func TestZkLock(t *testing.T) {
@@ -52,18 +52,18 @@ func TestZkLock(t *testing.T) {
 	wg := sync.WaitGroup{}
 	wg.Add(threadCount)
 
-	for i:=0; i<threadCount; i++	{
+	for i := 0; i < threadCount; i++ {
 		go startZkLockTest(i, &wg, loopCount)
 	}
 
 	wg.Wait()
 
-	if readCount() != loopCount * threadCount	{
+	if readCount() != loopCount*threadCount {
 		t.Fatalf("mismatch result count")
 	}
 }
 
-func startZkLockTest(id int, wg *sync.WaitGroup, loop int)	{
+func startZkLockTest(workerId int, wg *sync.WaitGroup, loop int) {
 	defer wg.Done()
 
 	zkServant := NewZkServant(zkIpList)
@@ -78,33 +78,39 @@ func startZkLockTest(id int, wg *sync.WaitGroup, loop int)	{
 	log.Printf("znodePath:[%s]\n", znodePath)
 
 	//mustSleep := time.Duration(60 - time.Now().Second())
-	//log.Printf("[%d] wait %d seconds", id, mustSleep)
+	//log.Printf("[%d] wait %d seconds", workerId, mustSleep)
 	//time.Sleep(time.Second * mustSleep)
 
-	for i:=0; i<loop; i++	{
-		createNodeWithLock(id, zkServant)
-		time.Sleep(time.Millisecond * time.Duration(rand.Intn(10) + 1))
+	for i := 0; i < loop; i++ {
+		createNodeWithLock(workerId, i, zkServant)
+		time.Sleep(time.Millisecond * time.Duration(rand.Intn(10)+1))
 	}
 }
 
-
-func createNodeWithLock(id int, zkServant *ZkServant)	{
+func createNodeWithLock(workerId, loop int, zkServant *ZkServant) {
+	log.Printf("[%d-%d] createNodeWithLock...", workerId, loop)
 	zkLock := zkServant.AcquireLock(znodeBaseDir, znodeKey)
-	log.Printf("[%d] do my job...", id)
+	log.Printf("[%d-%d] do my job...", workerId, loop)
 	if zkLock.Error() != nil {
-		log.Printf("[%d] zklock error : %s", id, zkLock.Error().Error())
+		log.Printf("[%d] zklock error : %s", workerId, zkLock.Error().Error())
 		return
 	}
 	defer zkLock.Close()
 
-	doMyCustomJob(id)
+	if workerId == 2 && loop == 2 {
+		// timeout test....
+		log.Printf("workerId[%d]-loop[%d] start sleep 6 second...", workerId, loop)
+		time.Sleep(time.Second * 6)
+		log.Printf("workerId[%d]-loop[%d] awaken...", workerId, loop)
+	}
+
+	doMyCustomJob(workerId)
 }
 
-
-func doMyCustomJob(id int)	{
+func doMyCustomJob(id int) {
 	dat, err := ioutil.ReadFile(countFile)
 	if err != nil {
-		if os.IsNotExist(err)	{
+		if os.IsNotExist(err) {
 			dat = []byte("1")
 			err = ioutil.WriteFile(countFile, dat, 0644)
 			if err != nil {
@@ -123,7 +129,7 @@ func doMyCustomJob(id int)	{
 		return
 	}
 
-	dat = []byte(fmt.Sprintf("%d", v + 1))
+	dat = []byte(fmt.Sprintf("%d", v+1))
 	err = ioutil.WriteFile(countFile, dat, 0644)
 	if err != nil {
 		log.Printf("fail to write file : %s", err.Error())
@@ -133,7 +139,7 @@ func doMyCustomJob(id int)	{
 	log.Printf("[%d] flush [%s] : %s", id, countFile, string(dat))
 }
 
-func readCount()	int 	{
+func readCount() int {
 	dat, err := ioutil.ReadFile(countFile)
 	if err != nil {
 		return -1

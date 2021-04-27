@@ -1,8 +1,8 @@
 module throosea.com/grpczk
 
-go 1.14
+go 1.16
 
 require (
-	github.com/samuel/go-zookeeper v0.0.0-20200724154423-2164a8ac840e
+	github.com/samuel/go-zookeeper v0.0.0-20201211165307-7117e9ea2414
 	google.golang.org/grpc v1.26.0
 )

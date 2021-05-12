@@ -425,7 +425,7 @@ func (m M) SetKey(keyPath string, value interface{}) error {
 
 	// A.B.C 에 value를 세팅한다는것은 A.B 에 C라는 키로 value를 세팅하는것이므로 A.B까지만 찾는다
 	var err error
-	var nodeChanged = false
+	var pathFound = false
 	node := m
 	for i := 0; i < len(pathTokenList)-1; i++ {
 		key := pathTokenList[i]
@@ -437,10 +437,10 @@ func (m M) SetKey(keyPath string, value interface{}) error {
 		if err != nil {
 			return fmt.Errorf("getKey[%s] error : %s", pathTokenList[i], err.Error())
 		}
-		nodeChanged = true
+		pathFound = true
 	}
 
-	if !nodeChanged {
+	if !pathFound {
 		return fmt.Errorf("abnormal keyPath [%s]", keyPath)
 	}
 

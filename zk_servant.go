@@ -27,11 +27,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/samuel/go-zookeeper/zk"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
 )
-
 
 // logging preference delivery mode
 const (
@@ -48,13 +48,13 @@ const (
 )
 
 type ZkServant struct {
-	ipList		[]string
-	zkConn 		*zk.Conn
-	mutex		sync.Mutex
-	cond		*sync.Cond
-	state		zk.State
-	pathSet		map[string]struct{}
-	sessionAvailable	bool
+	ipList           []string
+	zkConn           *zk.Conn
+	mutex            sync.Mutex
+	cond             *sync.Cond
+	state            zk.State
+	pathSet          map[string]struct{}
+	sessionAvailable bool
 }
 
 func NewZkServant(zkIpList string) *ZkServant {
@@ -90,12 +90,12 @@ func (z *ZkServant) Connect() error {
 				return
 			}
 		}
-	} ()
+	}()
 
 	return nil
 }
 
-func (z *ZkServant) Close()  {
+func (z *ZkServant) Close() {
 	z.zkConn.Close()
 	z.zkConn = nil
 	z.sessionAvailable = false
@@ -103,7 +103,7 @@ func (z *ZkServant) Close()  {
 	z.pathSet = nil
 }
 
-func (z *ZkServant) processZkEvent(event zk.Event) bool	{
+func (z *ZkServant) processZkEvent(event zk.Event) bool {
 	if event.Type != zk.EventSession {
 		return true
 	}
@@ -115,17 +115,17 @@ func (z *ZkServant) processZkEvent(event zk.Event) bool	{
 	z.cond.Broadcast()
 
 	switch event.State {
-	case zk.StateHasSession :
+	case zk.StateHasSession:
 		zk.DefaultLogger.Printf("zk has session")
 		if !z.sessionAvailable {
 			z.reCreateAllEphemerals()
 			z.sessionAvailable = true
 		}
-	case zk.StateConnected :
+	case zk.StateConnected:
 		zk.DefaultLogger.Printf("zk connected")
-	case zk.StateDisconnected :
+	case zk.StateDisconnected:
 		zk.DefaultLogger.Printf("zk disconnected")
-	case zk.StateExpired :
+	case zk.StateExpired:
 		zk.DefaultLogger.Printf("zk expired")
 		z.zkConn.Close()
 		z.zkConn = nil
@@ -137,7 +137,7 @@ func (z *ZkServant) processZkEvent(event zk.Event) bool	{
 	return true
 }
 
-func (z *ZkServant) reCreateAllEphemerals() 	{
+func (z *ZkServant) reCreateAllEphemerals() {
 	for k, _ := range z.pathSet {
 		err := z.createEphemeralOnce(k)
 		if err != nil {
@@ -178,7 +178,6 @@ func (z *ZkServant) CreateEphemeral(path string) error {
 	return nil
 }
 
-
 func (z *ZkServant) createEphemeralOnce(path string) error {
 	zk.DefaultLogger.Printf("createEphemeralOnce : %s", path)
 	z.ensureZkEnabled()
@@ -210,6 +209,81 @@ func (z *ZkServant) SetData(path string, data []byte) error {
 	return err
 }
 
+type ZNodeDataHandleFunc func(znodeData []byte) ([]byte, error)
+
+func (z *ZkServant) SetDataWithVersion(path string, handleFunc ZNodeDataHandleFunc) error {
+	zk.DefaultLogger.Printf("zk SetDataWithVersion [%s]", path)
+
+	delayUnit := time.Millisecond * 5
+	delayMaximum := time.Millisecond * 500
+	tryCount := 0
+
+	for true {
+		previous, stat, err := z.GetDataWithStat(path)
+		if err != nil {
+			return fmt.Errorf("SetDataWithVersion.GetDataWithStat : %s", err.Error())
+		}
+
+		converted, err := handleFunc(previous)
+		if err != nil {
+			return fmt.Errorf("handle func error : %s", err.Error())
+		}
+
+		_, err = z.zkConn.Set(path, converted, stat.Version)
+		if err == nil {
+			break
+		}
+
+		if err == zk.ErrNoNode {
+			zk.DefaultLogger.Printf("[%s] node does not exist", path)
+			err = z.ensurePath(path)
+			if err != nil {
+				return err
+			}
+			// set again
+			_, err = z.zkConn.Set(path, converted, zkVersionAll)
+			return err
+		} else if err == zk.ErrBadVersion {
+			zk.DefaultLogger.Printf("zk: version conflict [%s]", path)
+			if tryCount > MaxSetDataTryCount {
+				// 5, 10, 20, 40, 80, 160, 320, 500, 500, 500
+				return fmt.Errorf("fail set to data. exceed max retry %s", err.Error())
+			}
+			time.Sleep(delayUnit)
+			delayUnit = delayUnit * 2
+			if delayUnit > delayMaximum {
+				delayUnit = delayMaximum
+			}
+			tryCount++
+			continue
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+const (
+	MaxSetDataTryCount = 10
+)
+
+// SetDataIntoMap znode의 value 가 json 형태의 데이터라고 가정하고 해당 json 데이터에서 특정 키 path 에 특정 값을 put 한다
+func (z *ZkServant) SetDataIntoMap(znodePath, keyPath string, data interface{}) error {
+	zk.DefaultLogger.Printf("zk SetDataIntoMap [%s]", znodePath)
+
+	handlerFunc := func(previousData []byte) ([]byte, error) {
+		var previous M
+		err := json.Unmarshal(previousData, &previous)
+		if err != nil {
+			return nil, fmt.Errorf("SetDataIntoMap.Unmarshal error [%s] : %s", znodePath, err.Error())
+		}
+		err = previous.SetKey(keyPath, data)
+		return json.Marshal(previous)
+	}
+
+	return z.SetDataWithVersion(znodePath, handlerFunc)
+}
 
 const (
 	FlagPersistent = 0
@@ -220,7 +294,7 @@ func (z *ZkServant) ensurePath(path string) error {
 
 	acl := zk.WorldACL(zk.PermAll)
 	dir := ""
-	for _, p := range strings.Split(path, "/")	{
+	for _, p := range strings.Split(path, "/") {
 		if len(p) == 0 {
 			continue
 		}
@@ -255,10 +329,10 @@ func (z *ZkServant) GetTransportMode(path string) (TransportMode, error) {
 		return TransportModeUnknown, fmt.Errorf("Invalid service description. not found transport key")
 	}
 
-	switch(strings.ToLower(mode))	{
-	case "h2c" :
+	switch strings.ToLower(mode) {
+	case "h2c":
 		return TransportModePlain, nil
-	case "h2" :
+	case "h2":
 		return TransportModeSsl, nil
 	}
 
@@ -269,6 +343,13 @@ func (z *ZkServant) GetData(path string) ([]byte, error) {
 	z.ensureZkEnabled()
 	data, _, err := z.zkConn.Get(path)
 	return data, err
+}
+
+func (z *ZkServant) GetDataWithStat(path string) ([]byte, *zk.Stat, error) {
+	zk.DefaultLogger.Printf("zk GetDataWithStat : %s", path)
+	z.ensureZkEnabled()
+	data, stat, err := z.zkConn.Get(path)
+	return data, stat, err
 }
 
 func (z *ZkServant) ChildrenW(path string) ([]string, <-chan zk.Event, error) {
@@ -282,7 +363,6 @@ func (z *ZkServant) Delete(path string) error {
 	return z.zkConn.Delete(path, zkVersionAll)
 }
 
-
 func (z *ZkServant) createLockPath(path string) error {
 	acl := zk.WorldACL(zk.PermAll)
 	_, err := z.zkConn.Create(path, nil, zk.FlagEphemeral, acl)
@@ -293,7 +373,7 @@ func (z *ZkServant) createLockPath(path string) error {
 	return nil
 }
 
-func (z *ZkServant) deleteLockPath(path string)  {
+func (z *ZkServant) deleteLockPath(path string) {
 	err := z.zkConn.Delete(path, 0)
 	if err != nil {
 		zk.DefaultLogger.Printf("Delete error : %s, %s", path, err.Error())
@@ -310,4 +390,84 @@ func parseIpList(config string) []string {
 	}
 
 	return list
+}
+
+const (
+	pathDelimiter = "."
+)
+
+type M map[string]interface{}
+
+func (m M) SetKey(keyPath string, value interface{}) error {
+	if len(keyPath) == 0 {
+		return fmt.Errorf("empty keypath")
+	}
+
+	if strings.Contains(keyPath, " ") ||
+		strings.HasPrefix(keyPath, pathDelimiter) ||
+		strings.HasSuffix(keyPath, pathDelimiter) {
+		return fmt.Errorf("invalid keypath [%s]", keyPath)
+	}
+
+	pathTokenList := strings.Split(keyPath, pathDelimiter)
+
+	if len(pathTokenList) == 1 {
+		key := pathTokenList[0]
+		if len(key) == 0 {
+			return fmt.Errorf("empty key for keyPath [%s]", keyPath)
+		}
+		m[key] = value
+		return nil
+	}
+
+	// A.B.C 에 value를 세팅한다는것은 A.B 에 C라는 키로 value를 세팅하는것이므로 A.B까지만 찾는다
+	var err error
+	var nodeChanged = false
+	node := m
+	for i := 0; i < len(pathTokenList)-1; i++ {
+		key := pathTokenList[i]
+		if len(key) == 0 {
+			continue
+		}
+
+		node, err = node.getKey(key, true)
+		if err != nil {
+			return fmt.Errorf("getKey[%s] error : %s", pathTokenList[i], err.Error())
+		}
+		nodeChanged = true
+	}
+
+	if !nodeChanged {
+		return fmt.Errorf("abnormal keyPath [%s]", keyPath)
+	}
+
+	leaf := pathTokenList[len(pathTokenList)-1]
+	node[leaf] = value
+	return nil
+}
+
+func (m M) GetKey(key string) (M, error) {
+	return m.getKey(key, false)
+}
+
+func (m M) getKey(key string, create bool) (M, error) {
+	value, ok := m[key]
+	if !ok {
+		if !create {
+			return nil, fmt.Errorf("not found key [%s]", key)
+		}
+
+		// key가 존재하지 않으면 새로 생성한다
+		mappedValue := make(M)
+		m[key] = make(M)
+		return mappedValue, nil
+	}
+	mappedValue, ok := value.(map[string]interface{})
+	if ok {
+		return mappedValue, nil
+	}
+
+	xType := reflect.TypeOf(value)
+	xValue := reflect.ValueOf(value)
+	return nil, fmt.Errorf("%s 의 하위 데이터 구조가 map 형식이 아닙니다. type=[%s], value=[%s]", key, xType, xValue)
 }

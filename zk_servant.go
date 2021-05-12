@@ -279,6 +279,9 @@ func (z *ZkServant) SetDataIntoMap(znodePath, keyPath string, data interface{}) 
 			return nil, fmt.Errorf("SetDataIntoMap.Unmarshal error [%s] : %s", znodePath, err.Error())
 		}
 		err = previous.SetKey(keyPath, data)
+		if err != nil {
+			return nil, fmt.Errorf("SetDataIntoMap.SetKey error [%s] : %s", znodePath, err.Error())
+		}
 		return json.Marshal(previous)
 	}
 

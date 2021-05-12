@@ -462,9 +462,10 @@ func (m M) getKey(key string, create bool) (M, error) {
 
 		// key가 존재하지 않으면 새로 생성한다
 		mappedValue := make(M)
-		m[key] = make(M)
+		m[key] = mappedValue
 		return mappedValue, nil
 	}
+
 	mappedValue, ok := value.(map[string]interface{})
 	if ok {
 		return mappedValue, nil

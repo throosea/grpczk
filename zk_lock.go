@@ -31,6 +31,7 @@ import (
 
 type ZkLock struct {
 	err       error
+	giveup    bool
 	zkServant *ZkServant
 	lockPath  string
 }
@@ -39,18 +40,24 @@ func (z ZkLock) Error() error {
 	return z.err
 }
 
+func (z ZkLock) IsGiveup() bool {
+	return z.giveup
+}
+
 func (z *ZkLock) Close() {
 	if z.zkServant != nil && len(z.lockPath) > 0 {
 		z.zkServant.deleteLockPath(z.lockPath)
 	}
 }
 
-func (z *ZkServant) AcquireLock(znodeBaseDir, key string) ZkLock {
+func (z *ZkServant) AcquireLock(znodeBaseDir, key string, opts ...*LockOptions) ZkLock {
 	znodePath := filepath.Join(znodeBaseDir, key)
 
+	lo := mergeLockOptions(opts...)
 	zkLock := ZkLock{}
 	zkLock.lockPath = znodePath
 	zkLock.zkServant = z
+	zkLock.giveup = false
 	first := true
 
 	for {
@@ -64,6 +71,12 @@ func (z *ZkServant) AcquireLock(znodeBaseDir, key string) ZkLock {
 
 		if err != zk.ErrNodeExists {
 			zkLock.err = err
+			return zkLock
+		}
+
+		// Node Exist...
+		if lo.Giveup != nil && *lo.Giveup {
+			zkLock.giveup = true
 			return zkLock
 		}
 

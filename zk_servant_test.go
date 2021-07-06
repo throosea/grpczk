@@ -197,7 +197,7 @@ func TestSetDataWithVersion(t *testing.T) {
 		t.Fatalf("GetData err : %s", err.Error())
 	}
 	finalCount, _ := strconv.Atoi(string(data))
-	if finalCount != 101 {
+	if finalCount != 100 {
 		t.Fatalf("invalid final count : %d", finalCount)
 	}
 }

@@ -152,3 +152,42 @@ func readCount() int {
 
 	return v
 }
+
+func TestLockWithOption(t *testing.T) {
+	zkServant := NewZkServant(zkIpList)
+	err := zkServant.Connect()
+	if err != nil {
+		t.Fatalf("fail to connect zk : %s", err.Error())
+		return
+	}
+
+	znodePath := filepath.Join(znodeBaseDir, znodeKey)
+
+	log.Printf("znodePath:[%s]\n", znodePath)
+
+	opt := &LockOptions{}
+	opt = opt.SetGiveup(true)
+	zkLock := zkServant.AcquireLock(znodeBaseDir, znodeKey, opt)
+	if zkLock.Error() != nil {
+		t.Fatalf("AcquireLock error : %s", zkLock.Error().Error())
+		return
+	}
+	if zkLock.giveup {
+		t.Fatalf("AcquireLock invalid lock. giveup must be false")
+		return
+	}
+
+	defer zkLock.Close()
+
+	// lock again
+	zkLock2 := zkServant.AcquireLock(znodeBaseDir, znodeKey, opt)
+	if zkLock2.Error() != nil {
+		t.Fatalf("AcquireLock error : %s", zkLock.Error().Error())
+		return
+	}
+	if !zkLock2.giveup {
+		t.Fatalf("AcquireLock invalid lock. giveup must be TRUE")
+		return
+	}
+	log.Printf("TestLockWithOption success")
+}

@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -179,6 +180,7 @@ func TestSetDataWithVersion(t *testing.T) {
 	}
 
 	// start racing
+	exceedMaxRetryErrCount = 0
 	loopCount := 10
 	threadCount := 10
 
@@ -197,10 +199,12 @@ func TestSetDataWithVersion(t *testing.T) {
 		t.Fatalf("GetData err : %s", err.Error())
 	}
 	finalCount, _ := strconv.Atoi(string(data))
-	if finalCount != 100 {
+	if finalCount != 101-int(exceedMaxRetryErrCount) {
 		t.Fatalf("invalid final count : %d", finalCount)
 	}
 }
+
+var exceedMaxRetryErrCount int32
 
 func startZkSetTest(workerId int, wg *sync.WaitGroup, loop int) {
 	defer wg.Done()
@@ -226,6 +230,9 @@ func startZkSetTest(workerId int, wg *sync.WaitGroup, loop int) {
 		err = zkServant.SetDataWithVersion(znodeSetTestWithVersion, handlerFunc)
 		if err != nil {
 			log.Printf("[%d] zk SetDataWithVersion error : %s", workerId, err.Error())
+			if strings.Contains(err.Error(), "exceed max retry") {
+				atomic.AddInt32(&exceedMaxRetryErrCount, 1)
+			}
 		}
 	}
 }

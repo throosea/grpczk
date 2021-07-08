@@ -23,6 +23,12 @@
 
 package grpczk
 
+import "errors"
+
+var (
+	ErrLockGiveup = errors.New("zklock : giveup locking")
+)
+
 type LockOptions struct {
 	// If true, Caller receive Lock(with giveup field as true) while fail to acquire lock
 	// It means if acquiring fails at first time, caller doesn't try acquiring.

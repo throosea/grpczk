@@ -172,22 +172,19 @@ func TestLockWithOption(t *testing.T) {
 		t.Fatalf("AcquireLock error : %s", zkLock.Error().Error())
 		return
 	}
-	if zkLock.giveup {
-		t.Fatalf("AcquireLock invalid lock. giveup must be false")
-		return
-	}
 
 	defer zkLock.Close()
 
 	// lock again
 	zkLock2 := zkServant.AcquireLock(znodeBaseDir, znodeKey, opt)
 	if zkLock2.Error() != nil {
-		t.Fatalf("AcquireLock error : %s", zkLock.Error().Error())
+		if zkLock2.Error() == ErrLockGiveup {
+			log.Printf("TestLockWithOption success")
+			return
+		}
+		t.Fatalf("AcquireLock invalid lock. giveup must be TRUE. err=%s", zkLock2.Error().Error())
 		return
 	}
-	if !zkLock2.giveup {
-		t.Fatalf("AcquireLock invalid lock. giveup must be TRUE")
-		return
-	}
-	log.Printf("TestLockWithOption success")
+
+	t.Fatalf("AcquireLock expect ErrLockGiveup")
 }

@@ -289,7 +289,9 @@ func (z *ZkServant) SetDataIntoMap(znodePath, keyPath string, data interface{}) 
 }
 
 const (
-	FlagPersistent = 0
+	FlagPersistent      = 0
+	TransferH2          = "h2"
+	TransferH2ClearText = "h2c"
 )
 
 func (z *ZkServant) ensurePath(path string) error {
@@ -333,9 +335,9 @@ func (z *ZkServant) GetTransportMode(path string) (TransportMode, error) {
 	}
 
 	switch strings.ToLower(mode) {
-	case "h2c":
+	case TransferH2ClearText:
 		return TransportModePlain, nil
-	case "h2":
+	case TransferH2:
 		return TransportModeSsl, nil
 	}
 

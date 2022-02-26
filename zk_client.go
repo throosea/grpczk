@@ -72,6 +72,11 @@ func (z *ZkClientServant) SetLogger(logger zk.Logger) *ZkClientServant {
 	return z
 }
 
+func (z *ZkClientServant) SetDebug(debug bool) *ZkClientServant {
+	z.zkServant.SetDebug(debug)
+	return z
+}
+
 func (z *ZkClientServant) Disconnect(znodePath string) {
 	zm.Lock()
 	defer zm.Unlock()

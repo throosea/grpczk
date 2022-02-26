@@ -53,6 +53,7 @@ type ZkServant struct {
 	mutex            sync.Mutex
 	cond             *sync.Cond
 	state            zk.State
+	errorLogger      zk.Logger
 	debugging        bool
 	pathSet          map[string]struct{}
 	sessionAvailable bool
@@ -72,6 +73,11 @@ func NewZkServant(zkIpList string) *ZkServant {
 
 func (z *ZkServant) SetLogger(logger zk.Logger) *ZkServant {
 	zk.DefaultLogger = logger
+	return z
+}
+
+func (z *ZkServant) SetErrorLogger(logger zk.Logger) *ZkServant {
+	z.errorLogger = logger
 	return z
 }
 
@@ -124,6 +130,10 @@ func (z *ZkServant) processZkEvent(event zk.Event) bool {
 	}
 
 	zk.DefaultLogger.Printf("zk event : %v", event)
+
+	if z.state != event.State && z.errorLogger != nil {
+		z.errorLogger.Printf("zk status changed : %v", event)
+	}
 
 	z.state = event.State
 

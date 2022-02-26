@@ -131,14 +131,24 @@ func (z *ZkServant) processZkEvent(event zk.Event) bool {
 
 	zk.DefaultLogger.Printf("zk event : %v", event)
 
+	// report error for changing state
 	if z.state != event.State && z.errorLogger != nil {
-		z.errorLogger.Printf("zk status changed : %v", event)
+		switch event.State {
+		case zk.StateConnectedReadOnly:
+		case zk.StateSaslAuthenticated:
+		case zk.StateConnecting:
+		case zk.StateConnected:
+		case zk.StateHasSession:
+		default:
+			z.errorLogger.Printf("zk status changed : %v", event)
+		}
 	}
 
 	z.state = event.State
 
 	z.cond.Broadcast()
 
+	// StateUnknown, StateDisconnected, StateExpired, StateAuthFailed
 	switch event.State {
 	case zk.StateHasSession:
 		zk.DefaultLogger.Printf("zk has session")
@@ -148,6 +158,8 @@ func (z *ZkServant) processZkEvent(event zk.Event) bool {
 		}
 	case zk.StateConnected:
 		zk.DefaultLogger.Printf("zk connected")
+	case zk.StateAuthFailed:
+		zk.DefaultLogger.Printf("zk auth failed")
 	case zk.StateDisconnected:
 		zk.DefaultLogger.Printf("zk disconnected")
 	case zk.StateExpired:

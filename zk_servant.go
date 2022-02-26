@@ -53,6 +53,7 @@ type ZkServant struct {
 	mutex            sync.Mutex
 	cond             *sync.Cond
 	state            zk.State
+	debugging        bool
 	pathSet          map[string]struct{}
 	sessionAvailable bool
 }
@@ -65,6 +66,7 @@ func NewZkServant(zkIpList string) *ZkServant {
 	servant.state = zk.StateDisconnected
 	servant.pathSet = map[string]struct{}{}
 	servant.sessionAvailable = true
+	servant.debugging = true
 	return &servant
 }
 
@@ -73,12 +75,25 @@ func (z *ZkServant) SetLogger(logger zk.Logger) *ZkServant {
 	return z
 }
 
+func (z *ZkServant) SetDebug(debug bool) *ZkServant {
+	z.debugging = debug
+	return z
+}
+
 func (z *ZkServant) Connect() error {
 	if z.zkConn != nil {
 		return nil
 	}
 
-	conn, eventChan, err := zk.Connect(z.ipList, time.Second)
+	//(*Conn, <-chan Event, error)
+	var conn *zk.Conn
+	var eventChan <-chan zk.Event
+	var err error
+	if z.debugging {
+		conn, eventChan, err = zk.Connect(z.ipList, time.Second)
+	} else {
+		conn, eventChan, err = zk.Connect(z.ipList, time.Second, zk.WithLogInfo(false))
+	}
 	if err != nil {
 		return err
 	}

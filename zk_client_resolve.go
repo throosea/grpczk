@@ -25,7 +25,7 @@ package grpczk
 
 import (
 	"fmt"
-	"github.com/samuel/go-zookeeper/zk"
+	"github.com/go-zookeeper/zk"
 	"google.golang.org/grpc/resolver"
 	"sync"
 )

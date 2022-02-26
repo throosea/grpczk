@@ -24,7 +24,7 @@
 package grpczk
 
 import (
-	"github.com/samuel/go-zookeeper/zk"
+	"github.com/go-zookeeper/zk"
 	"path/filepath"
 	"time"
 )

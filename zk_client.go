@@ -64,7 +64,8 @@ func NewZkClientServant(zkIpList string) *ZkClientServant {
 }
 
 type ZkClientServant struct {
-	zkServant *ZkServant
+	zkServant   *ZkServant
+	errorLogger zk.Logger
 }
 
 func (z *ZkClientServant) SetLogger(logger zk.Logger) *ZkClientServant {
@@ -74,6 +75,7 @@ func (z *ZkClientServant) SetLogger(logger zk.Logger) *ZkClientServant {
 
 func (z *ZkClientServant) SetErrorLogger(logger zk.Logger) *ZkClientServant {
 	z.zkServant.SetErrorLogger(logger)
+	z.errorLogger = logger
 	return z
 }
 
@@ -203,7 +205,10 @@ func (z *ZkClientServant) watchNode(znodePath string, children []string, ch <-ch
 
 		err = updateServerList(znodePath, children)
 		if err != nil {
-			zk.DefaultLogger.Printf("[%s] fail to update service list : %s", znodePath, err.Error())
+			if z.errorLogger != nil {
+				z.errorLogger.Printf("[%s] fail to update service list [addr.len=%d] : %s", znodePath, len(children), err.Error())
+			}
+			zk.DefaultLogger.Printf("[%s] fail to update service list : %s. children=%v", znodePath, err.Error(), children)
 			if err == errNotfoundServiceName {
 				return
 			}

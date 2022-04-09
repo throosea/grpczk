@@ -118,8 +118,7 @@ func (z *ZkClientServant) Connect(znodePath string) (*grpc.ClientConn, error) {
 	}
 
 	if len(children) == 0 {
-		//return nil, fmt.Errorf("%s : there is no server", znodePath)
-		zk.DefaultLogger.Printf("[%s] there is no server", znodePath)
+		return nil, fmt.Errorf("%s : there is no server", znodePath)
 	}
 
 	zk.DefaultLogger.Printf("[%s] initial server list : %v", znodePath, children)

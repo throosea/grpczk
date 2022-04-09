@@ -26,7 +26,7 @@ package grpczk
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/samuel/go-zookeeper/zk"
+	"github.com/go-zookeeper/zk"
 	"reflect"
 	"strings"
 	"sync"
@@ -53,6 +53,8 @@ type ZkServant struct {
 	mutex            sync.Mutex
 	cond             *sync.Cond
 	state            zk.State
+	errorLogger      zk.Logger
+	debugging        bool
 	pathSet          map[string]struct{}
 	sessionAvailable bool
 }
@@ -65,6 +67,7 @@ func NewZkServant(zkIpList string) *ZkServant {
 	servant.state = zk.StateDisconnected
 	servant.pathSet = map[string]struct{}{}
 	servant.sessionAvailable = true
+	servant.debugging = true
 	return &servant
 }
 
@@ -73,12 +76,30 @@ func (z *ZkServant) SetLogger(logger zk.Logger) *ZkServant {
 	return z
 }
 
+func (z *ZkServant) SetErrorLogger(logger zk.Logger) *ZkServant {
+	z.errorLogger = logger
+	return z
+}
+
+func (z *ZkServant) SetDebug(debug bool) *ZkServant {
+	z.debugging = debug
+	return z
+}
+
 func (z *ZkServant) Connect() error {
 	if z.zkConn != nil {
 		return nil
 	}
 
-	conn, eventChan, err := zk.Connect(z.ipList, time.Second)
+	//(*Conn, <-chan Event, error)
+	var conn *zk.Conn
+	var eventChan <-chan zk.Event
+	var err error
+	if z.debugging {
+		conn, eventChan, err = zk.Connect(z.ipList, time.Second)
+	} else {
+		conn, eventChan, err = zk.Connect(z.ipList, time.Second, zk.WithLogInfo(false))
+	}
 	if err != nil {
 		return err
 	}
@@ -110,10 +131,24 @@ func (z *ZkServant) processZkEvent(event zk.Event) bool {
 
 	zk.DefaultLogger.Printf("zk event : %v", event)
 
+	// report error for changing state
+	if z.state != event.State && z.errorLogger != nil {
+		switch event.State {
+		case zk.StateConnectedReadOnly:
+		case zk.StateSaslAuthenticated:
+		case zk.StateConnecting:
+		case zk.StateConnected:
+		case zk.StateHasSession:
+		default:
+			z.errorLogger.Printf("zk status changed : %v", event)
+		}
+	}
+
 	z.state = event.State
 
 	z.cond.Broadcast()
 
+	// StateUnknown, StateDisconnected, StateExpired, StateAuthFailed
 	switch event.State {
 	case zk.StateHasSession:
 		zk.DefaultLogger.Printf("zk has session")
@@ -123,6 +158,8 @@ func (z *ZkServant) processZkEvent(event zk.Event) bool {
 		}
 	case zk.StateConnected:
 		zk.DefaultLogger.Printf("zk connected")
+	case zk.StateAuthFailed:
+		zk.DefaultLogger.Printf("zk auth failed")
 	case zk.StateDisconnected:
 		zk.DefaultLogger.Printf("zk disconnected")
 	case zk.StateExpired:
@@ -289,7 +326,9 @@ func (z *ZkServant) SetDataIntoMap(znodePath, keyPath string, data interface{}) 
 }
 
 const (
-	FlagPersistent = 0
+	FlagPersistent      = 0
+	TransferH2          = "h2"
+	TransferH2ClearText = "h2c"
 )
 
 func (z *ZkServant) ensurePath(path string) error {
@@ -333,9 +372,9 @@ func (z *ZkServant) GetTransportMode(path string) (TransportMode, error) {
 	}
 
 	switch strings.ToLower(mode) {
-	case "h2c":
+	case TransferH2ClearText:
 		return TransportModePlain, nil
-	case "h2":
+	case TransferH2:
 		return TransportModeSsl, nil
 	}
 

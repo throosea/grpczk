@@ -98,7 +98,7 @@ func (z *ZkClientServant) Disconnect(znodePath string) {
 	}
 }
 
-func (z *ZkClientServant) Connect(znodePath string) (*grpc.ClientConn, error) {
+func (z *ZkClientServant) Connect(znodePath string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	err := z.zkServant.Connect()
 	if err != nil {
 		return nil, err
@@ -129,32 +129,45 @@ func (z *ZkClientServant) Connect(znodePath string) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
+	dialTarget := fmt.Sprintf("%s:///%s", grpczkScheme, znodePath)
+	dialOpts := make([]grpc.DialOption, 0)
+	dialOpts = append(dialOpts, grpc.WithBlock())
+	dialOpts = append(dialOpts, grpc.WithDefaultServiceConfig(grpcServiceConfig))
+
 	var gConn *grpc.ClientConn
 	switch mode {
 	case TransportModePlain:
-		gConn, err = grpc.DialContext(
-			ctx,
-			fmt.Sprintf("%s:///%s", grpczkScheme, znodePath),
-			grpc.WithBlock(),
-			grpc.WithDefaultServiceConfig(grpcServiceConfig),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		//gConn, err = grpc.DialContext(
+		//	ctx,
+		//	fmt.Sprintf("%s:///%s", grpczkScheme, znodePath),
+		//	grpc.WithBlock(),
+		//	grpc.WithDefaultServiceConfig(grpcServiceConfig),
+		//	grpc.WithTransportCredentials(insecure.NewCredentials()),
+		//)
 	case TransportModeSsl:
 		conf := &tls.Config{
 			InsecureSkipVerify: true,
 		}
 		creds := credentials.NewTLS(conf)
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
 
-		gConn, err = grpc.DialContext(
-			ctx,
-			fmt.Sprintf("%s:///%s", grpczkScheme, znodePath),
-			grpc.WithBlock(),
-			grpc.WithDefaultServiceConfig(grpcServiceConfig),
-			grpc.WithTransportCredentials(creds),
-		)
+		//gConn, err = grpc.DialContext(
+		//	ctx,
+		//	fmt.Sprintf("%s:///%s", grpczkScheme, znodePath),
+		//	grpc.WithBlock(),
+		//	grpc.WithDefaultServiceConfig(grpcServiceConfig),
+		//	grpc.WithTransportCredentials(creds),
+		//)
 	default:
 		return nil, fmt.Errorf("invalid transport mode : %v", mode)
 	}
+
+	gConn, err = grpc.DialContext(
+		ctx,
+		dialTarget,
+		dialOpts...,
+	)
 
 	if err == nil {
 		// start watch node...

@@ -130,35 +130,24 @@ func (z *ZkClientServant) Connect(znodePath string, opts ...grpc.DialOption) (*g
 	defer cancel()
 
 	dialTarget := fmt.Sprintf("%s:///%s", grpczkScheme, znodePath)
+
 	dialOpts := make([]grpc.DialOption, 0)
 	dialOpts = append(dialOpts, grpc.WithBlock())
 	dialOpts = append(dialOpts, grpc.WithDefaultServiceConfig(grpcServiceConfig))
+	if len(opts) > 0 {
+		dialOpts = append(dialOpts, opts...)
+	}
 
 	var gConn *grpc.ClientConn
 	switch mode {
 	case TransportModePlain:
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		//gConn, err = grpc.DialContext(
-		//	ctx,
-		//	fmt.Sprintf("%s:///%s", grpczkScheme, znodePath),
-		//	grpc.WithBlock(),
-		//	grpc.WithDefaultServiceConfig(grpcServiceConfig),
-		//	grpc.WithTransportCredentials(insecure.NewCredentials()),
-		//)
 	case TransportModeSsl:
 		conf := &tls.Config{
 			InsecureSkipVerify: true,
 		}
 		creds := credentials.NewTLS(conf)
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
-
-		//gConn, err = grpc.DialContext(
-		//	ctx,
-		//	fmt.Sprintf("%s:///%s", grpczkScheme, znodePath),
-		//	grpc.WithBlock(),
-		//	grpc.WithDefaultServiceConfig(grpcServiceConfig),
-		//	grpc.WithTransportCredentials(creds),
-		//)
 	default:
 		return nil, fmt.Errorf("invalid transport mode : %v", mode)
 	}
